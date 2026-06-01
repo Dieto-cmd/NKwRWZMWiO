@@ -1,10 +1,12 @@
 import json
+import sys
 import networkx as nx
 import matplotlib.pyplot as plt
 from find_path import find_path, MAX_JUMP
 
-# Read the data from the json file
-with open('input_node_link_data.json', 'r', encoding='utf-8') as f:
+input_file = sys.argv[1] if len(sys.argv) > 1 else 'input_node_link_data.json'
+
+with open(input_file, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
 # Create networkx graph from the data
