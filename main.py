@@ -1,96 +1,155 @@
-import json
-import sys
+import json, sys, math
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from find_path import find_path, MAX_JUMP
 
-input_file = sys.argv[1] if len(sys.argv) > 1 else 'input_node_link_data.json'
+input_file = sys.argv[1] if len(sys.argv) > 1 else 'input_coords.json'
 
 with open(input_file, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
-# Create networkx graph from the data
-G = nx.node_link_graph(data, edges="links")
+river_width = data['river_width']
+max_jump    = data.get('max_jump', MAX_JUMP)
+crocs       = data['crocodiles']
 
-# Read the start and destination nodes
-start = next((n for n, attr in G.nodes(data=True) if attr.get('start')), None)
-end   = next((n for n, attr in G.nodes(data=True) if attr.get('end')), None)
+# ---- Build graph from coordinates ----
+G = nx.Graph()
+for c in crocs:
+    G.add_node(c['id'], x=c['x'], y=c['y'])
 
-if start is None:
-    print("ERROR: No start node. Provide start node in the json file.")
-    print('e.g. {"id": "A", "start": true}')
-    exit()
-if end is None:
-    print("ERROR: No end node. Provide end node in the json file.")
-    print('e.g. {"id": "E", "end": true}')
-    exit()
+ys = [c['y'] for c in crocs]
+mid_y = (max(ys) + min(ys)) / 2
+G.add_node('START', x=0,           y=mid_y)
+G.add_node('END',   x=river_width, y=mid_y)
 
-# DFS: find any path using only edges with distance <= MAX_JUMP cubits
-try:
-    path = find_path(G, start, end, max_distance=MAX_JUMP)
-except nx.NodeNotFound as e:
-    print(f"ERROR: Node not found: {e}")
-    exit()
+# bank-to-croc distances (perpendicular to bank)
+for c in crocs:
+    G.add_edge('START', c['id'], value=round(c['x'],               2))
+    G.add_edge(c['id'], 'END',   value=round(river_width - c['x'], 2))
 
-path_edges = []
+# croc-to-croc Euclidean distances
+for i in range(len(crocs)):
+    for j in range(i + 1, len(crocs)):
+        c1, c2 = crocs[i], crocs[j]
+        dist = math.sqrt((c2['x']-c1['x'])**2 + (c2['y']-c1['y'])**2)
+        G.add_edge(c1['id'], c2['id'], value=round(dist, 2))
+
+# ---- DFS ----
+path = find_path(G, 'START', 'END', max_distance=max_jump)
+path_set = set()
 if path:
-    path_edges = list(zip(path, path[1:]))
-    print(f"Path exists: {' -> '.join(str(n) for n in path)}")
+    for i in range(len(path) - 1):
+        path_set.add((path[i],   path[i+1]))
+        path_set.add((path[i+1], path[i]))
+    print(f"Path: {' -> '.join(path)}")
 else:
-    print(f"No path from {start} to {end} with max jump {MAX_JUMP} cubits.")
+    print(f"No path across the river (max jump: {max_jump} cubits)")
 
-# ---------- Visualization ----------
-pos = nx.kamada_kawai_layout(G)
-fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+# ---- Visualization ----
+MARGIN  = 2.0
+y_min   = min(ys) - MARGIN
+y_max   = max(ys) + MARGIN
+bank_w  = max(river_width * 0.04, 0.8)
 
-def node_colors(highlight_path=False):
-    colors = []
-    for node in G.nodes():
-        if node == start:
-            colors.append('limegreen')
-        elif node == end:
-            colors.append('tomato')
-        elif highlight_path and path and node in path:
-            colors.append('orange')
-        else:
-            colors.append('skyblue')
-    return colors
+fig, ax = plt.subplots(figsize=(14, 7))
 
-edge_labels = nx.get_edge_attributes(G, 'value')
+# Water
+ax.add_patch(mpatches.Rectangle(
+    (0, y_min), river_width, y_max - y_min,
+    fc='#d6eaf8', ec='none', zorder=0))
 
-# Separate traversable (<=MAX_JUMP) from blocked (>MAX_JUMP) edges
-traversable = [(u, v) for u, v, d in G.edges(data=True) if d.get('value', 0) <= MAX_JUMP]
-blocked     = [(u, v) for u, v, d in G.edges(data=True) if d.get('value', 0) > MAX_JUMP]
+# Banks
+for bx, fc, label in [
+    (-bank_w,     '#2e7d32', 'START'),
+    (river_width, '#c62828', 'META'),
+]:
+    ax.add_patch(mpatches.Rectangle(
+        (bx, y_min), bank_w, y_max - y_min,
+        fc=fc, ec='none', zorder=1))
+    ax.text(bx + bank_w/2, (y_min + y_max)/2, label,
+        ha='center', va='center', fontsize=10, fontweight='bold',
+        color='white', rotation=90, zorder=2)
 
-# Graph 1: all edges, blocked ones dashed orange
-ax1 = axes[0]
-ax1.set_title(f"Graph (dashed = too far, max jump = {MAX_JUMP} cubits)")
-nx.draw_networkx_nodes(G, pos, node_color=node_colors(False), node_size=500, ax=ax1)
-nx.draw_networkx_labels(G, pos, ax=ax1, font_size=10)
-nx.draw_networkx_edges(G, pos, edgelist=traversable, edge_color='steelblue', width=1.5, ax=ax1)
-nx.draw_networkx_edges(G, pos, edgelist=blocked, edge_color='orange', width=1.5,
-                       style='dashed', ax=ax1)
-nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax1,
-                              font_color='red', font_size=14)
+# Croc-to-croc edges
+for u, v, d in G.edges(data=True):
+    if 'START' in (u, v) or 'END' in (u, v):
+        continue
+    val  = d['value']
+    pu   = (G.nodes[u]['x'], G.nodes[u]['y'])
+    pv   = (G.nodes[v]['x'], G.nodes[v]['y'])
+    on_path = (u, v) in path_set
+    if on_path:
+        ax.plot([pu[0], pv[0]], [pu[1], pv[1]],
+            color='darkorange', lw=3.5, zorder=4, solid_capstyle='round')
+        mx, my = (pu[0]+pv[0])/2, (pu[1]+pv[1])/2
+        ax.text(mx, my + 0.3, f'{val}',
+            ha='center', fontsize=8, color='darkorange', fontweight='bold', zorder=6,
+            bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.8))
+    elif val <= max_jump:
+        ax.plot([pu[0], pv[0]], [pu[1], pv[1]],
+            color='#1565c0', lw=1.2, alpha=0.45, zorder=2)
 
-# Graph 2: highlight found path
-ax2 = axes[1]
-if path:
-    ax2.set_title(f"Path: {' → '.join(str(n) for n in path)}")
-else:
-    ax2.set_title("No valid path found")
+# Bank-to-croc edges
+for c in crocs:
+    cx, cy = c['x'], c['y']
+    cid    = c['id']
+    left_d  = round(cx,               2)
+    right_d = round(river_width - cx, 2)
 
-other_edges = [e for e in G.edges()
-               if e not in path_edges and (e[1], e[0]) not in path_edges]
+    for x0, x1, dist, key_pair in [
+        (0,           cx,           left_d,  ('START', cid)),
+        (cx,          river_width,  right_d, (cid,    'END')),
+    ]:
+        on_path = key_pair in path_set
+        if on_path:
+            ax.annotate('', xy=(x1, cy), xytext=(x0, cy),
+                arrowprops=dict(arrowstyle='->', color='darkorange',
+                                lw=2.5, mutation_scale=15), zorder=4)
+            ax.text((x0+x1)/2, cy + 0.35, f'{dist}',
+                ha='center', fontsize=8, color='darkorange', fontweight='bold', zorder=6,
+                bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.8))
+        elif dist <= max_jump:
+            ax.plot([x0, x1], [cy, cy], color='#1565c0', lw=1.2, alpha=0.45, zorder=2)
+            ax.text((x0+x1)/2, cy + 0.35, f'{dist}',
+                ha='center', fontsize=7, color='#1565c0', alpha=0.7, zorder=3)
 
-nx.draw_networkx_nodes(G, pos, node_color=node_colors(True), node_size=500, ax=ax2)
-nx.draw_networkx_labels(G, pos, ax=ax2, font_size=10)
-nx.draw_networkx_edges(G, pos, edgelist=path_edges,
-                       edge_color='darkorange', width=3, ax=ax2)
-nx.draw_networkx_edges(G, pos, edgelist=other_edges,
-                       edge_color='lightgray', width=1, ax=ax2)
-nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax2,
-                              font_color='red', font_size=14)
+# Crocodiles
+for c in crocs:
+    on_path_node = path and c['id'] in path
+    fc = 'darkorange' if on_path_node else '#388e3c'
+    ax.scatter(c['x'], c['y'], s=700, color=fc, zorder=7,
+        edgecolors='white', linewidths=2)
+    ax.text(c['x'], c['y'], c['id'],
+        ha='center', va='center', fontsize=9, fontweight='bold',
+        color='white', zorder=8)
+
+# Axes
+ax.set_xlim(-bank_w - 0.3, river_width + bank_w + 0.3)
+ax.set_ylim(y_min - 0.2,   y_max + 0.2)
+ax.set_xlabel('Odległość od lewego brzegu [łokcie]', fontsize=11)
+ax.set_ylabel('Pozycja wzdłuż rzeki [łokcie]',       fontsize=11)
+ax.set_xticks(range(0, river_width + 1, 2))
+ax.grid(True, axis='x', alpha=0.15, color='navy', zorder=1)
+
+title = (
+    f"Ścieżka: {' → '.join(n for n in path if n not in ('START','END'))}"
+    if path else "Brak drogi przez rzekę"
+)
+ax.set_title(title, fontsize=13, fontweight='bold', pad=12)
+
+legend_elements = [
+    mpatches.Patch(fc='#d6eaf8', ec='steelblue',  label='Rzeka Nil'),
+    mpatches.Patch(fc='#2e7d32',                   label='Brzeg startowy'),
+    mpatches.Patch(fc='#c62828',                   label='Brzeg docelowy'),
+    plt.Line2D([0],[0], color='#1565c0', lw=1.5, alpha=0.7,
+        label=f'Osiągalny skok (≤ {max_jump} łokci)'),
+    plt.Line2D([0],[0], color='darkorange', lw=3.5,
+        label='Znaleziona ścieżka'),
+    mpatches.Patch(fc='#388e3c',   label='Krokodyl'),
+    mpatches.Patch(fc='darkorange', label='Krokodyl na ścieżce'),
+]
+ax.legend(handles=legend_elements, loc='upper right', fontsize=9, framealpha=0.92)
 
 plt.tight_layout()
 plt.show()
