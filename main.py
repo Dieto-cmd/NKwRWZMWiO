@@ -4,10 +4,87 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from find_path import find_path, MAX_JUMP
 
+def error(msg):
+    print(f"ERROR: {msg}")
+    sys.exit(1)
+
+def validate(data, filepath):
+    if not isinstance(data, dict):
+        error(f"'{filepath}': plik musi zawierać obiekt JSON, nie {type(data).__name__}")
+
+    # river_width
+    if 'river_width' not in data:
+        error("brak pola 'river_width'")
+    rw = data['river_width']
+    if not isinstance(rw, (int, float)) or isinstance(rw, bool):
+        error(f"'river_width' musi być liczbą, otrzymano: {rw!r}")
+    if rw <= 0:
+        error(f"'river_width' musi być dodatnie, otrzymano: {rw}")
+
+    # max_jump (opcjonalne)
+    if 'max_jump' in data:
+        mj = data['max_jump']
+        if not isinstance(mj, (int, float)) or isinstance(mj, bool):
+            error(f"'max_jump' musi być liczbą, otrzymano: {mj!r}")
+        if mj <= 0:
+            error(f"'max_jump' musi być dodatnie, otrzymano: {mj}")
+
+    # crocodiles
+    if 'crocodiles' not in data:
+        error("brak pola 'crocodiles'")
+    crocs = data['crocodiles']
+    if not isinstance(crocs, list):
+        error(f"'crocodiles' musi być listą, otrzymano: {type(crocs).__name__}")
+    if len(crocs) == 0:
+        error("'crocodiles' nie może być pustą listą")
+
+    seen_ids = set()
+    for i, c in enumerate(crocs):
+        prefix = f"krokodyl nr {i+1}"
+        if not isinstance(c, dict):
+            error(f"{prefix}: oczekiwano obiektu, otrzymano: {c!r}")
+
+        # id
+        if 'id' not in c:
+            error(f"{prefix}: brak pola 'id'")
+        cid = c['id']
+        if not isinstance(cid, (str, int, float)) or isinstance(cid, bool):
+            error(f"{prefix}: 'id' musi być tekstem lub liczbą, otrzymano: {cid!r}")
+        cid_str = str(cid)
+        if cid_str in ('START', 'END'):
+            error(f"{prefix}: 'id' nie może być 'START' ani 'END' (zarezerwowane)")
+        if cid_str in seen_ids:
+            error(f"{prefix}: duplikat 'id' = {cid!r}")
+        seen_ids.add(cid_str)
+
+        # x
+        if 'x' not in c:
+            error(f"{prefix} (id={cid!r}): brak pola 'x'")
+        x = c['x']
+        if not isinstance(x, (int, float)) or isinstance(x, bool):
+            error(f"{prefix} (id={cid!r}): 'x' musi być liczbą, otrzymano: {x!r}")
+        if x <= 0 or x >= rw:
+            error(f"{prefix} (id={cid!r}): 'x' musi być w zakresie (0, {rw}), otrzymano: {x}")
+
+        # y
+        if 'y' not in c:
+            error(f"{prefix} (id={cid!r}): brak pola 'y'")
+        y = c['y']
+        if not isinstance(y, (int, float)) or isinstance(y, bool):
+            error(f"{prefix} (id={cid!r}): 'y' musi być liczbą, otrzymano: {y!r}")
+
+# ---- Load & validate ----
 input_file = sys.argv[1] if len(sys.argv) > 1 else 'input_coords.json'
 
-with open(input_file, 'r', encoding='utf-8') as f:
-    data = json.load(f)
+try:
+    with open(input_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except FileNotFoundError:
+    error(f"plik '{input_file}' nie istnieje")
+except json.JSONDecodeError as e:
+    error(f"nieprawidłowy JSON w '{input_file}': {e}")
+
+validate(data, input_file)
 
 river_width = data['river_width']
 max_jump    = data.get('max_jump', MAX_JUMP)
