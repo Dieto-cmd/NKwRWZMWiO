@@ -1,5 +1,4 @@
 {
-    "river_width": 10,
     "max_jump": 5,
     "crocodiles": [
         {"id": "A", "x": 5,  "y": 1}
