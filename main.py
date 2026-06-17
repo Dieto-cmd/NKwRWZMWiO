@@ -63,8 +63,8 @@ def validate(data, filepath):
         x = c['x']
         if not isinstance(x, (int, float)) or isinstance(x, bool):
             error(f"{prefix} (id={cid!r}): 'x' musi być liczbą, otrzymano: {x!r}")
-        if x <= 0 or x >= rw:
-            error(f"{prefix} (id={cid!r}): 'x' musi być w zakresie (0, {rw}), otrzymano: {x}")
+        if x < 1 or x >= (rw-1):
+            error(f"{prefix} (id={cid!r}): 'x' musi być w zakresie (1, {(rw-1)}), otrzymano: {x}")
 
         # y
         if 'y' not in c:

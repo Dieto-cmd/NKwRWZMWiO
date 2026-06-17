@@ -1,8 +1,8 @@
 {
-    "river_width": 18,
+    "river_width": 3,
     "max_jump": 5,
     "crocodiles": [
-        {"id": "A", "x": 3,  "y": 7},
+        {"id": "A", "x": 1,  "y": 15},
         {"id": "B", "x": 4,  "y": 3},
         {"id": "C", "x": 7,  "y": 9},
         {"id": "D", "x": 7,  "y": 5},
